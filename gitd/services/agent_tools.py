@@ -955,16 +955,23 @@ def execute_tool(name: str, args: dict) -> str:
     result = _execute_tool_inner(name, args)
     # Auto-append screen tree after UI actions
     if name in _UI_ACTION_TOOLS and args.get("device"):
+        device = args["device"]
+        xml = None
         try:
             import time as _t
 
             _t.sleep(0.5)
-            tree = ctx.get_screen_tree(args["device"])
+            # Fetch XML once and share it between get_screen_tree and _a11y_diff_suffix
+            # to avoid duplicate expensive dump_xml() calls
+            from gitd.bots.common.device import get_device
+            xml = get_device(device).dump_xml()
+            
+            tree = ctx.get_screen_tree(device, xml=xml)
             if tree and tree != "(empty screen)":
                 result += f"\n\n[Screen after action]\n{tree}"
         except Exception:
             pass
-        result += _a11y_diff_suffix(args["device"])
+        result += _a11y_diff_suffix(device, xml=xml)
     return result
 
 
@@ -974,13 +981,16 @@ def execute_tool(name: str, args: dict) -> str:
 _LAST_ELEMENTS: dict[str, list[dict]] = {}
 
 
-def _a11y_diff_suffix(device: str) -> str:
+def _a11y_diff_suffix(device: str, xml: str | None = None) -> str:
     """Diff the current interactive elements against the ones cached after the
     previous UI action on this device; return a text block to append (or "").
 
     Fail-open: any error (or the kill-switch off) yields an empty string, so the
-    existing post-action screen-tree behaviour is never disturbed. Costs one
-    extra UI-tree dump per UI action — disable with A11Y_DIFF_ENABLED=false.
+    existing post-action screen-tree behaviour is never disturbed.
+    
+    Args:
+        device: Device serial/ref
+        xml: Optional pre-fetched XML dump (avoids redundant dump_xml call)
     """
     try:
         from gitd.config import settings
@@ -988,7 +998,7 @@ def _a11y_diff_suffix(device: str) -> str:
 
         if not settings.a11y_diff_enabled:
             return ""
-        curr = ctx.get_interactive_elements(device)
+        curr = ctx.get_interactive_elements(device, xml=xml)
         prev = _LAST_ELEMENTS.get(device)
         _LAST_ELEMENTS[device] = curr
         diff = diff_elements(prev, curr)
