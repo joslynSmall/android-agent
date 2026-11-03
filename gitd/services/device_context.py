@@ -376,11 +376,26 @@ def get_screen_xml(device: str, max_length: int = 50000) -> str:
     return xml[:max_length] if xml else ""
 
 
-def get_interactive_elements(device: str, interactive_only: bool = True) -> list[dict]:
+def get_interactive_elements(device: str, interactive_only: bool = True, xml: str | None = None) -> list[dict]:
     """Interactive UI elements as a JSON-serializable list.
-    Each element: {idx, text, content_desc, resource_id, class, bounds, center, clickable, scrollable}."""
+    Each element: {idx, text, content_desc, resource_id, class, bounds, center, clickable, scrollable}.
+    
+    Args:
+        device: Device serial/ref
+        interactive_only: Filter to interactive elements only
+        xml: Optional pre-fetched XML dump (avoids redundant dump_xml call)
+    """
+    import os
+    import time as _time
+    
+    profile = os.getenv("GITD_PROFILE_SCREEN_TREE") == "true"
+    t_start = _time.time() if profile else None
+    
     dev = get_device(device)
-    xml = dev.dump_xml()
+    if xml is None:
+        xml = dev.dump_xml()
+        if profile:
+            print(f"[get_interactive_elements] dump_xml: {(_time.time() - t_start) * 1000:.1f}ms")
     if not xml:
         return []
 
@@ -416,10 +431,14 @@ def get_interactive_elements(device: str, interactive_only: bool = True) -> list
                 "scrollable": scrollable,
             }
         )
+    
+    if profile:
+        print(f"[get_interactive_elements] TOTAL: {(_time.time() - t_start) * 1000:.1f}ms, elements: {len(elements)}")
+    
     return elements
 
 
-def get_screen_tree(device: str, max_nodes: int = 80) -> str:
+def get_screen_tree(device: str, max_nodes: int = 80, xml: str | None = None) -> str:
     """LLM-friendly indented UI hierarchy tree.
 
     Format per node:
@@ -427,19 +446,40 @@ def get_screen_tree(device: str, max_nodes: int = 80) -> str:
 
     Skips deep non-interactive unlabelled nodes. Returns a string the LLM can
     read directly to understand screen layout and pick elements to interact with.
+    
+    Args:
+        device: Device serial/ref
+        max_nodes: Maximum nodes to include in output
+        xml: Optional pre-fetched XML dump (avoids redundant dump_xml call)
     """
     import xml.etree.ElementTree as ET
+    import os
+    import time as _time
 
     dev = get_device(device)
-    xml_str = dev.dump_xml()
+    
+    # Optional profiling mode for debugging slow get_screen_tree calls
+    profile = os.getenv("GITD_PROFILE_SCREEN_TREE") == "true"
+    t_start = _time.time() if profile else None
+    
+    if xml is None:
+        xml_str = dev.dump_xml()
+        if profile:
+            print(f"[get_screen_tree] dump_xml: {(_time.time() - t_start) * 1000:.1f}ms")
+    else:
+        xml_str = xml
     if not xml_str:
         return "(empty screen)"
 
+    t_parse = _time.time() if profile else None
     try:
         root = ET.fromstring(xml_str)
+        if profile:
+            print(f"[get_screen_tree] XML parse: {(_time.time() - t_parse) * 1000:.1f}ms, size: {len(xml_str)} bytes")
     except ET.ParseError:
         return "(XML parse error)"
 
+    t_walk = _time.time() if profile else None
     lines = []
     idx_counter = [0]
 
@@ -487,8 +527,12 @@ def get_screen_tree(device: str, max_nodes: int = 80) -> str:
 
     for child in root:
         _walk(child, 0)
+    
+    if profile:
+        print(f"[get_screen_tree] tree walk: {(_time.time() - t_walk) * 1000:.1f}ms, nodes: {len(lines)}")
 
     # Add scroll hint based on element positions
+    t_hint = _time.time() if profile else None
     try:
         all_y = []
         for n in root.iter():
@@ -509,6 +553,10 @@ def get_screen_tree(device: str, max_nodes: int = 80) -> str:
                 lines.append("\n[Page likely scrollable — swipe up to see more content]")
     except Exception:
         pass
+    
+    if profile:
+        print(f"[get_screen_tree] scroll hint: {(_time.time() - t_hint) * 1000:.1f}ms")
+        print(f"[get_screen_tree] TOTAL: {(_time.time() - t_start) * 1000:.1f}ms")
 
     return "\n".join(lines)
 

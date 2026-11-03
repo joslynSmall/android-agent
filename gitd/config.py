@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     # ── Perception ───────────────────────────────────────────────────────────
     # After a UI action, append a before/after accessibility-tree diff to the
     # tool result so the model sees what its action changed (additive perception
-    # aid). ON by default; set A11Y_DIFF_ENABLED=false to disable (kill-switch) —
-    # the diff costs one extra UI-tree dump per UI action.
+    # aid). ON by default; set A11Y_DIFF_ENABLED=false to disable (kill-switch).
+    # The XML dump is now shared with get_screen_tree, so the diff is nearly free.
     a11y_diff_enabled: bool = True
 
     # ── LLM ──────────────────────────────────────────────────────────────────

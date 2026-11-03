@@ -949,22 +949,38 @@ def tool_prompt_list(tools: list[dict]) -> str:
     )
 
 
-def execute_tool(name: str, args: dict) -> str:
+def execute_tool(name: str, args: dict, *, append_context: bool = True, skip_a11y_diff: bool = False) -> str:
     """Execute a tool call and return result as string.
-    UI actions auto-append the screen tree so the agent sees the result immediately."""
+    
+    Args:
+        name: Tool name to execute
+        args: Tool arguments
+        append_context: If True, auto-append screen tree after UI actions (default: True)
+        skip_a11y_diff: If True, skip a11y diff computation (useful for Tools Hub tests) (default: False)
+    
+    UI actions auto-append the screen tree so the agent sees the result immediately.
+    """
     result = _execute_tool_inner(name, args)
     # Auto-append screen tree after UI actions
-    if name in _UI_ACTION_TOOLS and args.get("device"):
+    if append_context and name in _UI_ACTION_TOOLS and args.get("device"):
+        device = args["device"]
+        xml = None
         try:
             import time as _t
 
             _t.sleep(0.5)
-            tree = ctx.get_screen_tree(args["device"])
+            # Fetch XML once and share it between get_screen_tree and _a11y_diff_suffix
+            # to avoid duplicate expensive dump_xml() calls
+            from gitd.bots.common.device import get_device
+            xml = get_device(device).dump_xml()
+            
+            tree = ctx.get_screen_tree(device, xml=xml)
             if tree and tree != "(empty screen)":
                 result += f"\n\n[Screen after action]\n{tree}"
         except Exception:
             pass
-        result += _a11y_diff_suffix(args["device"])
+        if not skip_a11y_diff:
+            result += _a11y_diff_suffix(device, xml=xml)
     return result
 
 
@@ -974,21 +990,29 @@ def execute_tool(name: str, args: dict) -> str:
 _LAST_ELEMENTS: dict[str, list[dict]] = {}
 
 
-def _a11y_diff_suffix(device: str) -> str:
+def _a11y_diff_suffix(device: str, xml: str | None = None) -> str:
     """Diff the current interactive elements against the ones cached after the
     previous UI action on this device; return a text block to append (or "").
 
     Fail-open: any error (or the kill-switch off) yields an empty string, so the
-    existing post-action screen-tree behaviour is never disturbed. Costs one
-    extra UI-tree dump per UI action — disable with A11Y_DIFF_ENABLED=false.
+    existing post-action screen-tree behaviour is never disturbed.
+    
+    Args:
+        device: Device serial/ref
+        xml: Optional pre-fetched XML dump (avoids redundant dump_xml call)
     """
+    # Early exit: check a11y_diff_enabled BEFORE doing expensive work
     try:
         from gitd.config import settings
-        from gitd.services.a11y_diff import diff_elements
-
         if not settings.a11y_diff_enabled:
             return ""
-        curr = ctx.get_interactive_elements(device)
+    except Exception:
+        return ""
+    
+    try:
+        from gitd.services.a11y_diff import diff_elements
+
+        curr = ctx.get_interactive_elements(device, xml=xml)
         prev = _LAST_ELEMENTS.get(device)
         _LAST_ELEMENTS[device] = curr
         diff = diff_elements(prev, curr)
