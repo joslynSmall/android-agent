@@ -2,20 +2,23 @@
 """Measure UI tool action latency with instrumentation.
 
 Usage:
-    python scripts/measure_ui_tool_latency.py <device_serial> [--tool press_home] [--iterations 5]
+    python scripts/measure_ui_tool_latency.py <device_serial> [--tool press_home] [--iterations 5] [--profile]
 
 Example:
     python scripts/measure_ui_tool_latency.py emulator-5554
     python scripts/measure_ui_tool_latency.py 192.168.1.100:5555 --tool swipe --iterations 10
+    python scripts/measure_ui_tool_latency.py emulator-5554 --profile  # Enable detailed profiling
 
 This script instruments execute_tool to measure the time spent in:
 - The actual action execution (_execute_tool_inner)
 - XML dumps (via dump_xml calls)
-- get_screen_tree processing
+- get_screen_tree processing (with --profile: dump, parse, walk, hint breakdown)
 - get_interactive_elements processing
 
 Use this to verify the optimization that shares one XML dump between
 get_screen_tree and _a11y_diff_suffix.
+
+With --profile flag, sets GITD_PROFILE_SCREEN_TREE=true for detailed breakdown.
 """
 
 import argparse
@@ -111,7 +114,14 @@ def main():
     parser.add_argument("--tool", default="press_home", choices=["press_home", "press_back", "swipe", "tap"],
                         help="UI tool to test (default: press_home)")
     parser.add_argument("--iterations", type=int, default=5, help="Number of test iterations (default: 5)")
+    parser.add_argument("--profile", action="store_true", 
+                        help="Enable detailed profiling (sets GITD_PROFILE_SCREEN_TREE=true)")
     args = parser.parse_args()
+
+    if args.profile:
+        import os
+        os.environ["GITD_PROFILE_SCREEN_TREE"] = "true"
+        print("=== Detailed profiling enabled ===\n")
 
     measure_tool_execution(args.device, args.tool, args.iterations)
 
