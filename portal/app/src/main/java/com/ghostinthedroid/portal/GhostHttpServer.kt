@@ -92,6 +92,7 @@ object GhostHttpServer {
                     "/speak" -> handleSpeak(body)
                     "/clipboard" -> handleClipboard(body)
                     "/overlay", "/overlay/toggle" -> handleOverlay(body)
+                    "/generation" -> handleGeneration()
                     "/stream/start" -> handleStreamStart(body)
                     "/stream/stop" -> handleStreamStop(body)
                     "/webrtc/answer" -> handleWebRtcAnswer(body)
@@ -152,6 +153,19 @@ object GhostHttpServer {
             val service = GhostAccessibilityService.instance
                 ?: return error("Accessibility service not running")
             return ok(service.getPackages().toString())
+        }
+
+        /**
+         * /generation — Return current screen generation counter and timestamp.
+         * Returns: {"generation": <long>, "timestamp": <millis>}
+         * Python host uses this to wait for UI updates instead of fixed sleep.
+         */
+        private fun handleGeneration(): Response {
+            val (gen, ts) = ScreenGenerationCounter.getCurrent()
+            val result = JSONObject()
+            result.put("generation", gen)
+            result.put("timestamp", ts)
+            return ok(result.toString())
         }
 
         private fun handleOverlay(body: JSONObject): Response {

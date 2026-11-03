@@ -59,11 +59,14 @@ object GhostOverlayManager {
 
     /** Called from GhostAccessibilityService on relevant events. */
     fun onAccessibilityEvent(event: AccessibilityEvent?, context: Context) {
-        if (!isVisible) return
         val type = event?.eventType ?: return
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
             type == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            // Increment generation counter (throttled to avoid scroll storms)
+            ScreenGenerationCounter.incrementIfThrottled()
+            
+            if (!isVisible) return
             val now = System.currentTimeMillis()
             if (now - lastRefreshTime < MIN_REFRESH_GAP_MS) return
             // Cancel previous pending refresh

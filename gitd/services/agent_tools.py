@@ -957,9 +957,20 @@ def execute_tool(name: str, args: dict) -> str:
     if name in _UI_ACTION_TOOLS and args.get("device"):
         try:
             import time as _t
+            from gitd.bots.common.adb import Device, wait_for_generation_change
 
-            _t.sleep(0.5)
-            tree = ctx.get_screen_tree(args["device"])
+            device_ref = args["device"]
+            # Only try generation wait for Android devices
+            if not is_ios_ref(device_ref):
+                dev = Device(device_ref)
+                # Try waiting for generation change; fall back to sleep if unavailable
+                if not wait_for_generation_change(dev, timeout=2.0):
+                    _t.sleep(0.5)
+            else:
+                # iOS: use fixed sleep
+                _t.sleep(0.5)
+
+            tree = ctx.get_screen_tree(device_ref)
             if tree and tree != "(empty screen)":
                 result += f"\n\n[Screen after action]\n{tree}"
         except Exception:

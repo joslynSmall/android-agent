@@ -962,3 +962,63 @@ def get_device(serial: str | None = None) -> Device:
 def list_connected() -> list[str]:
     out = subprocess.run(["adb", "devices"], capture_output=True, text=True).stdout
     return [line.split()[0] for line in out.splitlines()[1:] if line.strip() and line.split()[-1] == "device"]
+
+
+def wait_for_generation_change(
+    device: Device, before_generation: int | None = None, timeout: float = 2.0, poll_interval: float = 0.05
+) -> bool:
+    """Wait for the Portal generation counter to increase, indicating UI has updated.
+
+    Args:
+        device: Device instance
+        before_generation: Generation value before the action. If None, fetches it now.
+        timeout: Max seconds to wait
+        poll_interval: Seconds between polls
+
+    Returns:
+        True if generation increased, False if timeout or generation unavailable.
+
+    This replaces fixed sleep(0.5) after UI actions. If the generation endpoint is
+    unavailable (non-Portal device, old Portal version, or network error), returns
+    False immediately so caller can fall back to sleep.
+    """
+    # Ensure port forward is set up
+    port = device._ensure_portal_forward()
+    if not port:
+        return False
+
+    try:
+        import urllib.request
+
+        # Get starting generation if not provided
+        if before_generation is None:
+            resp = urllib.request.urlopen(f"http://localhost:{port}/generation", timeout=1.0)
+            data = json.loads(resp.read())
+            if data.get("status") != "success":
+                return False
+            result = json.loads(data["result"])
+            before_generation = result.get("generation", 0)
+
+        # Poll until generation increases or timeout
+        elapsed = 0.0
+        while elapsed < timeout:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+            try:
+                resp = urllib.request.urlopen(f"http://localhost:{port}/generation", timeout=1.0)
+                data = json.loads(resp.read())
+                if data.get("status") != "success":
+                    return False
+                result = json.loads(data["result"])
+                current_gen = result.get("generation", 0)
+                if current_gen > before_generation:
+                    return True
+            except Exception:
+                # Network error — assume generation unavailable
+                return False
+
+        # Timeout
+        return False
+    except Exception:
+        # Generation endpoint unavailable
+        return False
