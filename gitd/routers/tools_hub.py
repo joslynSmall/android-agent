@@ -214,7 +214,8 @@ def test_tool(data: dict = Body({})):
             if not supports_platform(tool_name, platform):
                 duration_ms = (time.time() - t0) * 1000
                 return {**platform_error(tool_name, platform), "duration_ms": round(duration_ms, 1)}
-        result = execute_tool(tool_name, tool_args)
+        # Skip a11y diff in Tools Hub tests - it's expensive (~1.2s) and tests don't need it
+        result = execute_tool(tool_name, tool_args, skip_a11y_diff=True)
         duration_ms = (time.time() - t0) * 1000
         if result.startswith("Unknown tool:"):
             return {
